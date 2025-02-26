@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Système de Chat RAG</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
+    <style>
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            background-color: #f8f9fa;
+        }
+        .message {
+            margin-bottom: 1rem;
+            clear: both;
+        }
+        .user-message {
+            text-align: right;
+        }
+        .user-message .content {
+            background-color: #007bff;
+            color: white;
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            max-width: 80%;
+            text-align: left;
+        }
+        .bot-message .content {
+            background-color: #e9ecef;
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            max-width: 80%;
+        }
+        .system-message .content {
+            background-color: #ffc107;
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            max-width: 80%;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .system-message {
+            text-align: center;
+        }
+        .file-list {
+            margin-top: 1rem;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            margin-bottom: 0.5rem;
+            background-color: #f8f9fa;
+        }
+        .file-name {
+            margin-left: 0.5rem;
+            flex-grow: 1;
+        }
+        .file-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-left: 0.5rem;
+        }
+        .timestamp {
+            font-size: 0.7rem;
+            color: #6c757d;
+            margin-top: 0.2rem;
+        }
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(0, 0, 0, 0.2);
+            border-top-color: #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Système de Chat RAG</h1>
+        
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <i class="bi bi-cloud-upload"></i> Upload de Documents
+                    </div>
+                    <div class="card-body">
+                        <form id="upload-form" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="file" class="form-label">Sélectionner un Fichier</label>
+                                <input class="form-control" type="file" id="file" name="file" accept=".pdf,.txt,.docx">
+                                <div class="form-text">Formats acceptés: PDF, TXT, DOCX</div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-upload"></i> Télécharger
+                            </button>
+                        </form>
+                        
+                        <div class="file-list" id="file-list">
+                            <h5 class="mt-4 mb-3">Fichiers Téléchargés</h5>
+                            <div id="files-container">
+                                <div class="text-center text-muted">
+                                    <i class="bi bi-folder"></i>
+                                    <p>Aucun fichier téléchargé</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <i class="bi bi-info-circle"></i> À Propos
+                    </div>
+                    <div class="card-body">
+                        <p>Ce système utilise la technologie RAG (Retrieval Augmented Generation) pour fournir des réponses basées sur vos documents.</p>
+                        <p>Pour commencer:</p>
+                        <ol>
+                            <li>Téléchargez vos documents</li>
+                            <li>Posez vos questions dans le chat</li>
+                            <li>Obtenez des réponses basées sur le contenu de vos documents</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <i class="bi bi-chat-dots"></i> Chat
+                    </div>
+                    <div class="card-body">
+                        <div class="chat-container" id="chat-container"></div>
+                        
+                        <form id="chat-form">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="message" placeholder="Posez votre question...">
+                                <button class="btn btn-success" type="submit">
+                                    <i class="bi bi-send"></i> Envoyer
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Store the session ID
+        let sessionId = null;
+        const uploadedFiles = [];
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('upload-form');
+            const chatForm = document.getElementById('chat-form');
+            const chatContainer = document.getElementById('chat-container');
+            const filesContainer = document.getElementById('files-container');
+            
+            // Handle file upload
+            uploadForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData();
+                const fileInput = document.getElementById('file');
+                
+                if (fileInput.files.length === 0) {
+                    alert('Veuillez sélectionner un fichier à télécharger');
+                    return;
+                }
+                
+                // Show loading
+                const submitBtn = this.querySelector('button[type="submit"]');
+                const originalBtnText = submitBtn.innerHTML;
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Traitement...';
+                
+                formData.append('file', fileInput.files[0]);
+                
+                try {
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        uploadedFiles.push({
+                            name: result.filename,
+                            chunks: result.chunks_processed
+                        });
+                        updateFilesList();
+                        
+                        // Clear file input
+                        fileInput.value = '';
+                        
+                        // Add system message
+                        addMessage('System', `Fichier "${result.filename}" téléchargé et traité (${result.chunks_processed} fragments).`);
+                    } else {
+                        alert('Erreur: ' + result.error);
+                    }
+                } catch (error) {
+                    alert('Erreur lors du téléchargement: ' + error);
+                } finally {
+                    // Restore button
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnText;
+                }
+            });
+            
+            // Handle chat submission
+            chatForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const messageInput = document.getElementById('message');
+                const query = messageInput.value.trim();
+                
+                if (query === '') {
+                    return;
+                }
+                
+                // Add user message to chat
+                addMessage('User', query, true);
+                
+                // Clear input
+                messageInput.value = '';
+                
+                try {
+                    // Add loading indicator
+                    const loadingId = Date.now();
+                    const loadingMessage = addMessage('Bot', '<div class="loading"></div> Réflexion en cours...', false, true, loadingId);
+                    
+                    const response = await fetch('/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            query: query,
+                            session_id: sessionId
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    // Remove loading message
+                    const loadingElement = document.getElementById(`message-${loadingId}`);
+                    if (loadingElement) {
+                        chatContainer.removeChild(loadingElement);
+                    }
+                    
+                    if (result.success) {
+                        // Update session ID
+                        sessionId = result.session_id;
+                        
+                        // Add bot message
+                        addMessage('Bot', result.response);
+                    } else {
+                        addMessage('System', 'Erreur: ' + result.error);
+                    }
+                } catch (error) {
+                    // Remove loading message if it exists
+                    const loadingElements = document.querySelectorAll('.bot-message:has(.loading)');
+                    loadingElements.forEach(el => chatContainer.removeChild(el));
+                    
+                    addMessage('System', 'Erreur de traitement: ' + error);
+                }
+            });
+            
+            // Function to add a message to the chat
+            function addMessage(sender, content, isUser = false, isLoading = false, id = null) {
+                const now = new Date();
+                const timeString = now.toLocaleTimeString();
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${isUser ? 'user-message' : sender === 'System' ? 'system-message' : 'bot-message'}`;
+                if (id) {
+                    messageDiv.id = `message-${id}`;
+                }
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'content';
+                contentDiv.innerHTML = content;
+                
+                const timestampDiv = document.createElement('div');
+                timestampDiv.className = 'timestamp';
+                timestampDiv.textContent = timeString;
+                
+                if (isUser || sender === 'System') {
+                    messageDiv.appendChild(contentDiv);
+                    contentDiv.appendChild(timestampDiv);
+                } else {
+                    messageDiv.appendChild(contentDiv);
+                    contentDiv.appendChild(timestampDiv);
+                }
+                
+                chatContainer.appendChild(messageDiv);
+                
+                // Scroll to bottom
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+                
+                return messageDiv;
+            }
+            
+            // Function to update the files list
+            function updateFilesList() {
+                filesContainer.innerHTML = '';
+                
+                if (uploadedFiles.length === 0) {
+                    const noFilesDiv = document.createElement('div');
+                    noFilesDiv.className = 'text-center text-muted';
+                    noFilesDiv.innerHTML = '<i class="bi bi-folder"></i><p>Aucun fichier téléchargé</p>';
+                    filesContainer.appendChild(noFilesDiv);
+                    return;
+                }
+                
+                uploadedFiles.forEach((file, index) => {
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = 'file-item';
+                    
+                    // Determine icon based on file extension
+                    let iconClass = 'bi bi-file-earmark';
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    if (ext === 'pdf') {
+                        iconClass = 'bi bi-file-earmark-pdf';
+                    } else if (ext === 'txt') {
+                        iconClass = 'bi bi-file-earmark-text';
+                    } else if (ext === 'docx') {
+                        iconClass = 'bi bi-file-earmark-word';
+                    }
+                    
+                    const icon = document.createElement('i');
+                    icon.className = iconClass;
+                    
+                    const fileName = document.createElement('span');
+                    fileName.className = 'file-name';
+                    fileName.textContent = file.name;
+                    
+                    const fileInfo = document.createElement('span');
+                    fileInfo.className = 'file-info';
+                    fileInfo.textContent = `${file.chunks} fragments`;
+                    
+                    fileDiv.appendChild(icon);
+                    fileDiv.appendChild(fileName);
+                    fileDiv.appendChild(fileInfo);
+                    filesContainer.appendChild(fileDiv);
+                });
+            }
+            
+            // Initialize the files list
+            updateFilesList();
+            
+            // Add welcome message
+            addMessage('Bot', 'Bienvenue au système de chat RAG! Veuillez télécharger des documents puis posez des questions à leur sujet.');
+        });
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
